@@ -1,16 +1,30 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import bcrypt from 'bcryptjs';
 import pkg from 'pg';
 
 const { Pool } = pkg;
-const pool = new Pool({
-    user: process.env.PGUSER,
-    host: process.env.PGHOST,
-    database: process.env.PGDATABASE,
-    password: process.env.PGPASSWORD,
-    port: parseInt(process.env.PGPORT, 10) || 5432,
-});
+
+// Support both DATABASE_URL (provided by Neon on Vercel) and individual PG* variables
+const poolConfig = process.env.DATABASE_URL
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    }
+  : {
+      user: process.env.PGUSER,
+      host: process.env.PGHOST,
+      database: process.env.PGDATABASE,
+      password: process.env.PGPASSWORD,
+      port: parseInt(process.env.PGPORT, 10) || 5432,
+      ssl:
+        process.env.PGHOST && process.env.PGHOST !== 'localhost'
+          ? { rejectUnauthorized: false }
+          : false,
+    };
+
+const pool = new Pool(poolConfig);
 
 const app = express();
 
@@ -18,45 +32,60 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Endpoint to handle user registration
-app.post('/Register', async (req, res) => {
-    try {
-        const { FirstName, email, password, phone } = req.body;
+// Express Router to handle routes under both '/' and '/api'
+const router = express.Router();
 
-        // Validation
-        if (!FirstName || !email || !password || !phone) {
+// Endpoint to handle user registration with bcrypt password hashing
+router.post('/Register', async (req, res) => {
+    try {
+        const { FirstName, email, password, phone } = req.body || {};
+
+        if (
+            typeof FirstName !== 'string' || !FirstName.trim() ||
+            typeof email !== 'string' || !email.trim() ||
+            typeof password !== 'string' || !password ||
+            typeof phone !== 'string' || !phone
+        ) {
             return res.status(400).json({ error: 'All fields are required' });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+        }
+        if (Buffer.byteLength(password, 'utf8') > 72) {
+            return res.status(400).json({ error: 'Password must be no more than 72 UTF-8 bytes.' });
         }
 
         if (!/^\d{10}$/.test(phone)) {
             return res.status(400).json({ error: 'Phone number must be exactly 10 digits.' });
         }
 
-        // Insert into database
+        // bcrypt generates a fresh random salt for each password.
+        const hashedPassword = await bcrypt.hash(password, 10);
+
         const result = await pool.query(
-            'INSERT INTO patient_register (FirstName, email, password, phone) VALUES ($1, $2, $3, $4) RETURNING *',
-            [FirstName, email, password, phone]
+            'INSERT INTO patient_register (FirstName, email, password, phone) VALUES ($1, $2, $3, $4) RETURNING id, FirstName, email, phone',
+            [FirstName, email, hashedPassword, phone]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
+        if (err.code === '23505') {
+            return res.status(409).json({ error: 'An account with this email already exists.' });
+        }
         console.error('Database error:', err.message);
         res.status(500).json({ error: 'Failed to register user' });
     }
 });
 
-
-// Endpoint to handle user login
-app.post('/login', async (req, res) => {
+// Endpoint to handle user login with secure bcrypt comparison
+router.post('/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
-        console.log('Login request:', req.body);
+        const { email, password } = req.body || {};
 
-        // Validation
-        if (!email || !password) {
+        if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        // Check if the user exists in the database
         const result = await pool.query('SELECT * FROM patient_register WHERE email = $1', [email]);
 
         if (result.rows.length === 0) {
@@ -65,27 +94,55 @@ app.post('/login', async (req, res) => {
 
         const user = result.rows[0];
 
-        if (user.password !== password) {
+        // Verify bcrypt hashes. Upgrade an old plaintext password after a valid login.
+        const isBcryptHash = /^\$2[aby]\$\d{2}\$/.test(user.password);
+        let isMatch = false;
+
+        if (isBcryptHash) {
+            isMatch = await bcrypt.compare(password, user.password);
+        } else if (user.password === password) {
+            isMatch = true;
+            const upgradedHash = await bcrypt.hash(password, 10);
+            await pool.query(
+                'UPDATE patient_register SET password = $1 WHERE id = $2 AND password = $3',
+                [upgradedHash, user.id, user.password]
+            );
+        }
+
+        if (!isMatch) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
-        res.status(200).json({ message: 'Login successful', user });
+        // Return user profile without leaking the password hash
+        const { password: _, ...userWithoutPassword } = user;
+        res.status(200).json({ message: 'Login successful', user: userWithoutPassword });
     } catch (err) {
         console.error('Login error:', err.message);
         res.status(500).json({ error: 'Failed to login' });
     }
 });
 
-const authenticateUser = (req, res, next) => {
-    if (req.session && req.session.user) {
-        next();
-    } else {
-        res.status(401).json({ error: "User not logged in. Please log in first." });
+// Admin Login Endpoint
+router.post("/AdminLogin", async (req, res) => {
+    try {
+        if (!req.body || !req.body.username || !req.body.password) {
+            return res.status(400).json({ error: "Missing username or password" });
+        }
+
+        const { username, password } = req.body;
+
+        if (username === "admin" && password === "admin") {
+            return res.status(200).json({ message: "Admin login successful" });
+        } else {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+    } catch (err) {
+        console.error("Admin login error:", err.message);
+        res.status(500).json({ error: "Failed to login" });
     }
-};
+});
 
-
-app.post('/UpdateAvailable', async (req, res) => {
+router.post('/UpdateAvailable', async (req, res) => {
     try {
         const { doctor_name, available } = req.body;
 
@@ -109,10 +166,8 @@ app.post('/UpdateAvailable', async (req, res) => {
     }
 });
 
-
-app.post('/SurgeryForm', async (req, res) => {
+router.post('/SurgeryForm', async (req, res) => {
     try {
-        console.log("Received Data:", req.body);
         const { patient_name, done_by, available, anasthesia, nurse, date } = req.body;
 
         if (!available || !anasthesia || !date) {
@@ -127,14 +182,13 @@ app.post('/SurgeryForm', async (req, res) => {
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error('Database error:', err.message);
-        res.status(500).json({ error: 'Failed to register user' });
+        res.status(500).json({ error: 'Failed to register surgery' });
     }
 });
 
-app.get('/RegisteredUser', async (req, res) => {
+router.get('/RegisteredUser', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM patient_register');
-        console.log('Query result:', result.rows);
+        const result = await pool.query('SELECT id, FirstName, email, phone FROM patient_register');
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error fetching registered users:', err.message);
@@ -142,31 +196,7 @@ app.get('/RegisteredUser', async (req, res) => {
     }
 });
 
-// Admin Login Endpoint
-app.post("/AdminLogin", async (req, res) => {
-    try {
-        console.log("Admin login request:", req.body);
-
-        if (!req.body || !req.body.username || !req.body.password) {
-            return res.status(400).json({ error: "Missing username or password" });
-        }
-
-        const { username, password } = req.body;
-
-        if (username === "admin" && password === "admin") {
-            console.log("✅ Admin credentials matched");
-            return res.status(200).json({ message: "Admin login successful" });
-        } else {
-            console.log("❌ Invalid credentials");
-            return res.status(401).json({ error: "Invalid credentials" });
-        }
-    } catch (err) {
-        console.error("Admin login error:", err.message);
-        res.status(500).json({ error: "Failed to login" });
-    }
-});
-
-app.get('/DoctorDetails', async (req, res) => {
+router.get('/DoctorDetails', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM doctor_details');
         res.status(200).json(result.rows);
@@ -176,38 +206,37 @@ app.get('/DoctorDetails', async (req, res) => {
     }
 });
 
-app.get('/PatientDetails', async (req, res) => {
+router.get('/PatientDetails', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM patient_details');
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error fetching doctors:', err.message);
-        res.status(500).json({ error: 'Failed to fetch doctor details' });
+        console.error('Error fetching patients:', err.message);
+        res.status(500).json({ error: 'Failed to fetch patient details' });
     }
 });
 
-app.get('/DocAvailable', async (req, res) => {
+router.get('/DocAvailable', async (req, res) => {
     try {
         const result = await pool.query("SELECT doctor_name FROM doctor_details WHERE NOT available = 'Leave'");
-        console.log('Query result:', result.rows);
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error fetching info:', err.message);
+        console.error('Error fetching available doctors:', err.message);
         res.status(500).json({ error: 'Failed to fetch info' });
     }
 });
 
-app.get('/PostOperation', async (req, res) => {
+router.get('/PostOperation', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM surgery_details');
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error fetching doctors:', err.message);
+        console.error('Error fetching surgery details:', err.message);
         res.status(500).json({ error: 'Failed to fetch surgery details' });
     }
 });
 
-app.get('/OTavailable', async (req, res) => {
+router.get('/OTavailable', async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT ot_name 
@@ -225,16 +254,24 @@ app.get('/OTavailable', async (req, res) => {
     }
 });
 
-app.get('/SurgicalDetails', async (req, res) => {
+router.get('/SurgicalDetails', async (req, res) => {
     try {
         const result = await pool.query("SELECT doctor_name FROM doctor_details WHERE NOT available = 'Leave'");
-        console.log('Query result:', result.rows);
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error fetching info:', err.message);
+        console.error('Error fetching surgical details:', err.message);
         res.status(500).json({ error: 'Failed to fetch info' });
     }
 });
+
+// Health check / welcome route
+router.get('/', (req, res) => {
+    res.json({ message: "Hospital Management Backend API is active" });
+});
+
+// Mount router on both '/' and '/api' for complete Vercel compatibility
+app.use(router);
+app.use('/api', router);
 
 const PORT = process.env.PORT || 5002;
 if (!process.env.VERCEL) {

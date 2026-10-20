@@ -131,6 +131,8 @@ function Register() {
               placeholder="Create a secure password"
               value={user.password}
               disabled={loading}
+              minLength={8}
+              autoComplete="new-password"
               required
             />
           </div>
