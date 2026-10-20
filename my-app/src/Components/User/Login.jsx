@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import API_BASE_URL from "../../apiConfig";
 
 function Login() {
   const [credentials, setCredentials] = useState({
@@ -22,7 +23,7 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:5002/login", {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
@@ -31,59 +32,104 @@ function Login() {
       const responseData = await response.json();
 
       if (response.ok) {
-        localStorage.setItem("auth", true);
+        localStorage.setItem("auth", "true");
+        localStorage.setItem("role", "patient");
         console.log(responseData);
         navigate("/SurgicalDetails");
       } else {
-        setError("Invalid email or password");
+        setError(responseData.error || "Invalid email or password");
       }
     } catch (error) {
-      setError("Failed to login");
+      console.error("Login error:", error);
+      setError("Failed to connect to backend server");
     } finally {
       setLoading(false);
     }
   }
 
   function handleLogout() {
-    localStorage.removeItem("auth"); // Clear authentication token
-    navigate("/"); // Redirect to home page or login page
+    localStorage.removeItem("auth");
+    navigate("/");
   }
 
   return (
-    <div className="container login-container" style={{ height: "400px" ,width:"430px", border:"2px solid black", textAlign: "center", marginTop:"100px",borderRadius:"20px"}}> 
-      <h1 style={{ textAlign: "center" }}>Login</h1>
-      <form onSubmit={handleClick}>
-        <label htmlFor="email">Email</label>
-        <input
-          onChange={handleChange}
-          type="email"
-          name="email"
-          value={credentials.email}
-          placeholder="Enter your email"
-          disabled={loading} style={{ color: "red" ,width:"400px", textAlign: "center"}}
-        />
+    <div className="auth-wrapper">
+      <div className="auth-card">
+        <div className="auth-header">
+          <div className="icon-circle">
+            <i className="fas fa-user-lock"></i>
+          </div>
+          <h2 className="auth-title">Patient Portal</h2>
+          <p className="auth-subtitle">Sign in to check your appointments and surgical details</p>
+        </div>
 
-        <label htmlFor="password">Password</label>
-        <input
-          onChange={handleChange}
-          type="password"
-          name="password"
-          value={credentials.password}
-          placeholder="Enter your password"
-          disabled={loading} style={{ color: "red" ,width:"400px", textAlign: "center" }}
-        />
+        {error && (
+          <div className="alert-modern alert-danger-modern mb-3">
+            <i className="fas fa-exclamation-circle"></i>
+            <span>{error}</span>
+          </div>
+        )}
 
-        <button type="submit" className="reg_btn" disabled={loading}>
-          {loading ? "Logging in..." : "Login"}
-        </button>
-      </form>
+        <form onSubmit={handleClick}>
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="email">Email Address</label>
+            <input
+              id="email"
+              onChange={handleChange}
+              type="email"
+              name="email"
+              className="form-control-modern"
+              value={credentials.email}
+              placeholder="e.g. patient@example.com"
+              disabled={loading}
+              required
+            />
+          </div>
 
-      {/* Logout button */}
-      <button onClick={handleLogout} className="reg_btn" style={{ marginTop: "10px" }}>
-        Logout
-      </button>
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="password">Password</label>
+            <input
+              id="password"
+              onChange={handleChange}
+              type="password"
+              name="password"
+              className="form-control-modern"
+              value={credentials.password}
+              placeholder="Enter your password"
+              disabled={loading}
+              required
+            />
+          </div>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+          <button type="submit" className="btn-modern btn-modern-primary w-100 mt-2" disabled={loading}>
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                Logging in...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-sign-in-alt"></i> Login
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="text-center mt-4 pt-3 border-top">
+          <p className="text-muted small mb-2">
+            Don't have an account yet?{" "}
+            <Link to="/Register" className="fw-bold text-decoration-none" style={{ color: "#0284c7" }}>
+              Register Here
+            </Link>
+          </p>
+          <button
+            onClick={handleLogout}
+            className="btn btn-sm btn-link text-muted text-decoration-none mt-1"
+          >
+            Clear Session & Return Home
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

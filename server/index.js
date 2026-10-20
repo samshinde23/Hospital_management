@@ -1,26 +1,22 @@
-
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pkg from 'pg';
 
 const { Pool } = pkg;
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'Doctor_project',
-    password: 'samshinde',
-    port: 5432,
+    user: process.env.PGUSER,
+    host: process.env.PGHOST,
+    database: process.env.PGDATABASE,
+    password: process.env.PGPASSWORD,
+    port: parseInt(process.env.PGPORT, 10) || 5432,
 });
 
 const app = express();
 
-// Enable CORS with specific origin
-//app.use(cors({ origin: 'http://localhost:3004' }));
-
-// Middleware to parse JSON
-app.use(cors({ origin: "http://localhost:3000" }));  // Enable CORS
+// Enable CORS for all origins
+app.use(cors());
 app.use(express.json());
-//app.use(express.json());
 
 // Endpoint to handle user registration
 app.post('/Register', async (req, res) => {
@@ -41,7 +37,7 @@ app.post('/Register', async (req, res) => {
             'INSERT INTO patient_register (FirstName, email, password, phone) VALUES ($1, $2, $3, $4) RETURNING *',
             [FirstName, email, password, phone]
         );
-        res.status(201).json(result.rows[0]); // Return 201 Created status
+        res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error('Database error:', err.message);
         res.status(500).json({ error: 'Failed to register user' });
@@ -53,7 +49,7 @@ app.post('/Register', async (req, res) => {
 app.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        console.log('Login request:', req.body); // Debug: log the request body
+        console.log('Login request:', req.body);
 
         // Validation
         if (!email || !password) {
@@ -69,12 +65,11 @@ app.post('/login', async (req, res) => {
 
         const user = result.rows[0];
 
-        // Validate the password (in a real application, use hashed passwords and compare hashes)
         if (user.password !== password) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
-        res.status(200).json({ message: 'Login successful', user }); // Return success response
+        res.status(200).json({ message: 'Login successful', user });
     } catch (err) {
         console.error('Login error:', err.message);
         res.status(500).json({ error: 'Failed to login' });
@@ -83,7 +78,7 @@ app.post('/login', async (req, res) => {
 
 const authenticateUser = (req, res, next) => {
     if (req.session && req.session.user) {
-        next(); // User is authenticated, proceed to donation
+        next();
     } else {
         res.status(401).json({ error: "User not logged in. Please log in first." });
     }
@@ -98,7 +93,6 @@ app.post('/UpdateAvailable', async (req, res) => {
             return res.status(400).json({ error: "Doctor name and availability are required." });
         }
 
-        // Update only the 'available' column for the specified doctor
         const result = await pool.query(
             "UPDATE doctor_details SET available = $1 WHERE doctor_name = $2 RETURNING *",
             [available, doctor_name]
@@ -118,7 +112,7 @@ app.post('/UpdateAvailable', async (req, res) => {
 
 app.post('/SurgeryForm', async (req, res) => {
     try {
-        console.log("Received Data:", req.body); // Debugging step
+        console.log("Received Data:", req.body);
         const { patient_name, done_by, available, anasthesia, nurse, date } = req.body;
 
         if (!available || !anasthesia || !date) {
@@ -137,13 +131,10 @@ app.post('/SurgeryForm', async (req, res) => {
     }
 });
 
-  // Endpoint to fetch user payment history
-  app.get('/RegisteredUser', async (req, res) => {
+app.get('/RegisteredUser', async (req, res) => {
     try {
-       
         const result = await pool.query('SELECT * FROM patient_register');
-        console.log('Query result:', result.rows);  // Log the result
-        
+        console.log('Query result:', result.rows);
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error fetching registered users:', err.message);
@@ -151,12 +142,10 @@ app.post('/SurgeryForm', async (req, res) => {
     }
 });
 
-
-
 // Admin Login Endpoint
 app.post("/AdminLogin", async (req, res) => {
     try {
-        console.log("Admin login request:", req.body);  // Debugging: Check if request body is received
+        console.log("Admin login request:", req.body);
 
         if (!req.body || !req.body.username || !req.body.password) {
             return res.status(400).json({ error: "Missing username or password" });
@@ -166,7 +155,7 @@ app.post("/AdminLogin", async (req, res) => {
 
         if (username === "admin" && password === "admin") {
             console.log("✅ Admin credentials matched");
-            return res.status(200).json({ message: "Admin login successful" });  // ✅ Ensure a response is sent
+            return res.status(200).json({ message: "Admin login successful" });
         } else {
             console.log("❌ Invalid credentials");
             return res.status(401).json({ error: "Invalid credentials" });
@@ -197,12 +186,10 @@ app.get('/PatientDetails', async (req, res) => {
     }
 });
 
-
 app.get('/DocAvailable', async (req, res) => {
     try {
         const result = await pool.query("SELECT doctor_name FROM doctor_details WHERE NOT available = 'Leave'");
-        console.log('Query result:', result.rows);  // Log the result
-        
+        console.log('Query result:', result.rows);
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error fetching info:', err.message);
@@ -231,7 +218,6 @@ app.get('/OTavailable', async (req, res) => {
                 WHERE available IS NOT NULL AND available != ''
             )
         `);
-        
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error fetching available OTs:', err.message);
@@ -239,12 +225,10 @@ app.get('/OTavailable', async (req, res) => {
     }
 });
 
-
 app.get('/SurgicalDetails', async (req, res) => {
     try {
         const result = await pool.query("SELECT doctor_name FROM doctor_details WHERE NOT available = 'Leave'");
-        console.log('Query result:', result.rows);  // Log the result
-        
+        console.log('Query result:', result.rows);
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error fetching info:', err.message);
@@ -252,7 +236,11 @@ app.get('/SurgicalDetails', async (req, res) => {
     }
 });
 
-const PORT = 5002;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 5002;
+if (!process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+export default app;

@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import API_BASE_URL from "../../apiConfig";
 
 function Register() {
   const [user, setUser] = useState({
@@ -9,6 +11,7 @@ function Register() {
   });
 
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function handleChange(e) {
@@ -16,8 +19,8 @@ function Register() {
 
     // Ensure phone number only contains digits and is max 10 characters
     if (name === "phone") {
-      if (!/^\d*$/.test(value)) return; // Allow only digits
-      if (value.length > 10) return; // Restrict to 10 characters
+      if (!/^\d*$/.test(value)) return;
+      if (value.length > 10) return;
     }
 
     setUser((prev) => ({ ...prev, [name]: value }));
@@ -26,9 +29,9 @@ function Register() {
   async function handleClick(e) {
     e.preventDefault();
     setError(null);
+    setSuccess(false);
     setLoading(true);
 
-    // Additional validation before sending data
     if (user.phone.length !== 10) {
       setError("Phone number must be exactly 10 digits.");
       setLoading(false);
@@ -36,7 +39,7 @@ function Register() {
     }
 
     try {
-      const response = await fetch("http://localhost:5002/Register", {
+      const response = await fetch(`${API_BASE_URL}/Register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(user),
@@ -47,68 +50,130 @@ function Register() {
       if (response.ok) {
         console.log("Registration successful:", responseData);
         setUser({ FirstName: "", email: "", password: "", phone: "" });
+        setSuccess(true);
         setError(null);
       } else {
         console.error("Error from server:", responseData);
-        setError(`Failed to register: ${responseData.error}`);
+        setError(`Failed to register: ${responseData.error || "Unknown error"}`);
       }
     } catch (error) {
       console.error("Error:", error);
-      setError("Failed to register");
+      setError("Failed to connect to backend server");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="container register-container" style={{marginTop:"100px"}}>
-      <h1 style={{ textAlign: "center" }}>Sign Up</h1>
-      <form onSubmit={handleClick}>
-        <label htmlFor="FirstName">Enter Name</label>
-        <input
-          onChange={handleChange}
-          type="text"
-          name="FirstName"
-          placeholder="What's your name?"
-          value={user.FirstName}
-          disabled={loading}
-        />
+    <div className="auth-wrapper">
+      <div className="auth-card">
+        <div className="auth-header">
+          <div className="icon-circle" style={{ background: "#dcfce7", color: "#16a34a" }}>
+            <i className="fas fa-user-plus"></i>
+          </div>
+          <h2 className="auth-title">Patient Sign Up</h2>
+          <p className="auth-subtitle">Create your personal account to manage healthcare records</p>
+        </div>
 
-        <label htmlFor="email">Email</label>
-        <input
-          onChange={handleChange}
-          type="email"
-          name="email"
-          value={user.email}
-          disabled={loading}
-        />
+        {error && (
+          <div className="alert-modern alert-danger-modern mb-3">
+            <i className="fas fa-exclamation-circle"></i>
+            <span>{error}</span>
+          </div>
+        )}
 
-        <label htmlFor="password">Password</label>
-        <input
-          onChange={handleChange}
-          type="password"
-          name="password"
-          value={user.password}
-          disabled={loading}
-        />
+        {success && (
+          <div className="alert-modern alert-success-modern mb-3">
+            <i className="fas fa-check-circle"></i>
+            <span>Registration successful! You can now log in.</span>
+          </div>
+        )}
 
-        <label htmlFor="phone">Phone no</label>
-        <input
-          onChange={handleChange}
-          type="text"
-          name="phone"
-          value={user.phone}
-          disabled={loading}
-          maxLength="10"
-          pattern="\d{10}"
-          title="Phone number must be exactly 10 digits"
-        />
+        <form onSubmit={handleClick}>
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="FirstName">Full Name</label>
+            <input
+              id="FirstName"
+              onChange={handleChange}
+              type="text"
+              name="FirstName"
+              className="form-control-modern"
+              placeholder="e.g. John Doe"
+              value={user.FirstName}
+              disabled={loading}
+              required
+            />
+          </div>
 
-        <button type="submit" className="reg_btn" disabled={loading}>
-          {loading ? "Submitting..." : "Submit"}
-        </button>
-      </form>
-      {error && <p style={{ color: "red" }}>{error}</p>}
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="email">Email Address</label>
+            <input
+              id="email"
+              onChange={handleChange}
+              type="email"
+              name="email"
+              className="form-control-modern"
+              placeholder="e.g. john@example.com"
+              value={user.email}
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="password">Password</label>
+            <input
+              id="password"
+              onChange={handleChange}
+              type="password"
+              name="password"
+              className="form-control-modern"
+              placeholder="Create a secure password"
+              value={user.password}
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <div className="form-group-modern">
+            <label className="form-label-modern" htmlFor="phone">Phone Number (10 Digits)</label>
+            <input
+              id="phone"
+              onChange={handleChange}
+              type="text"
+              name="phone"
+              className="form-control-modern"
+              placeholder="e.g. 9876543210"
+              value={user.phone}
+              disabled={loading}
+              maxLength="10"
+              required
+            />
+          </div>
+
+          <button type="submit" className="btn-modern btn-modern-primary w-100 mt-2" disabled={loading}>
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                Submitting...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-check"></i> Register Account
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="text-center mt-4 pt-3 border-top">
+          <p className="text-muted small mb-0">
+            Already registered?{" "}
+            <Link to="/Login" className="fw-bold text-decoration-none" style={{ color: "#0284c7" }}>
+              Log in to your account
+            </Link>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
