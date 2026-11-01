@@ -64,11 +64,6 @@ const AdminLogin = () => {
           </div>
         )}
 
-        <div className="p-3 mb-4 rounded-3 text-start small" style={{ background: "#f8fafc", border: "1px dashed #cbd5e1" }}>
-          <i className="fas fa-info-circle text-primary me-2"></i>
-          <strong>Default credentials:</strong> Username: <code>admin</code> | Password: <code>admin</code>
-        </div>
-
         <form onSubmit={handleLogin}>
           <div className="form-group-modern">
             <label className="form-label-modern" htmlFor="admin-username">Admin Username</label>
